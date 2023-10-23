@@ -19,6 +19,7 @@ public:
     int len();
     std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> transformItem(DatasetInfo data, int idx);
     std::vector<vector<std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>>> createBatch(DatasetInfo dataset);
+    void runONNX();
 
 protected:
     bool start_operation = 0;
@@ -28,6 +29,7 @@ protected:
     bool length = 0;
     bool transform_item = 0;
     bool create_batch = 0;
+    bool run_ONNX = 0;
 
 private:
     std::string root_path;

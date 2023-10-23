@@ -32,34 +32,53 @@ void MVTecDataset::start() {
 	    "hazelnut", "leather", "metal_nut", "pill", "screw",
 	    "tile", "toothbrush", "transistor", "wood", "zipper" };
 
-		//std::string modelPath = "C:/Users/000501/source/repos/Mahalanobis/model/efficientnet_model.pkl";
-		//torch::Device device(torch::kCPU);
-
-		//torch::jit::script::Module model = torch::jit::load(modelPath);
-		//model.to(device);
-		//model.eval();
-		//cout << ".pt format loaded" << endl;
-
 		// ONNX environment
 		Ort::Env env;	
 		auto modelPath = L"C:/Users/000501/source/repos/Mahalanobis/model/efficientnet-b4.onnx";    //model location	
-		Ort::Session session(env, modelPath, Ort::SessionOptions());     // create session
+		Ort::RunOptions runOptions;
+		Ort::Session session(env, modelPath, Ort::SessionOptions());
 
-		std::cout << "Number of model inputs:- " << session.GetInputCount() << endl;
-		std::cout << "Number of model outputs:- " << session.GetOutputCount() << endl;
+		constexpr int64_t numChannels = 3;
+		constexpr int64_t width = 224;
+		constexpr int64_t height = 224;
+		constexpr int64_t numClasses = 1000;
+		constexpr int64_t numInputElements = numChannels * height * width;
+
+		// define shape
+		const std::array<int64_t, 4> inputShape = { 1, numChannels, height, width };
+		const std::array<int64_t, 2> outputShape = { 1, numClasses };
+
+		// define array
+		std::array<float, numInputElements> input;
+		std::array<float, numClasses> results;
 
 		Ort::AllocatorWithDefaultOptions allocator;
 
 		cout << session.GetInputNameAllocated(0, allocator) << endl;
 		cout << session.GetOutputNameAllocated(0, allocator) << endl;
-
-		auto inputShape = session.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-		cout << inputShape << endl;
-
-		auto outputShape = session.GetOutputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
-		cout << outputShape << endl;
 		
-		auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
+		//auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
+		//auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, input.data(), input.size(), inputShape.data(), inputShape.size());
+		//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
+		
+		// define names
+		Ort::AllocatorWithDefaultOptions ort_alloc;
+		Ort::AllocatedStringPtr inputName = session.GetInputNameAllocated(0, ort_alloc);
+		Ort::AllocatedStringPtr outputName = session.GetOutputNameAllocated(0, ort_alloc);
+		const std::array<const char*, 1> inputNames = { inputName.get() };
+		const std::array<const char*, 1> outputNames = { outputName.get() };
+		
+		inputName.release();
+		outputName.release();
+
+		//// run inference
+		//try {
+		//	session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
+		//	cout << "ONNX running" << endl;
+		//}
+		//catch (Ort::Exception& e) {
+		//	std::cout << e.what() << std::endl;
+		//}
 
 		//Result folder
 		string RT = "C:/Users/000501/source/repos/Mahalanobis";
@@ -112,13 +131,141 @@ void MVTecDataset::start() {
 			std::filesystem::path train_feat_filepath = TempDir;
 			train_feat_filepath /= "train_" + class_name + "_" + "efficientnet-b4.onnx";
 			cout << train_feat_filepath << endl;
+
+			if (!std::filesystem::exists(train_feat_filepath))
+			{
+				std::ofstream outputChunkFile(train_feat_filepath, std::ios::binary); // Open the output file once
+				//std::vector<Ort::Value> output_tensors;
+				int m = 0;
+				for (const auto& batch : train_dataloader)
+				{ 
+					std::string progress_bar_text = "| feature extraction | train | " + class_name + " |" + " batch " + std::to_string(m);
+					cout << progress_bar_text << endl;
+					cout << endl;
+					for (const auto& data : batch)
+					{
+						torch::Tensor x = std::get<0>(data);
+						torch::Tensor y = std::get<1>(data);
+						torch::Tensor mask = std::get<2>(data);
+					
+						torch::NoGradGuard no_grad;   // Disable Gradient computation
+						auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
+						auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, x.data_ptr<float>(), input.size(), inputShape.data(), inputShape.size());
+						//auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, mask.data_ptr<float>(), input.size(), inputShape.data(), inputShape.size());
+
+						//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, nullptr, results.size(), outputShape.data(), outputShape.size());
+						//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, y.data_ptr<float>(), results.size(), outputShape.data(), outputShape.size());
+						auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
+
+						//// run inference
+						//try {
+						//	session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
+						//	cout << "ONNX running" << endl;
+						//}
+						//catch (Ort::Exception& e) {
+						//	std::cout << e.what() << std::endl;
+						//}
+						// Write the extracted features to the output file
+						outputChunkFile.write(reinterpret_cast<char*>(y.data_ptr<float>()), y.numel() * sizeof(float));
+						//outputChunkFile.write(reinterpret_cast<char*>(outputTensor.data_ptr<float>()), outputTensor.numel() * sizeof(float));
+					}
+					m = m + 1;
+				}
+				outputChunkFile.close();
+			}
 		}
 
-		torch::pick
 		std::vector<std::vector<int>> train_outputs(9);
 		std::vector<std::vector<int>> test_outputs(9);
 
 		
+
+		if (debug_flag) {
+			vector<pair<Mat, string>> ProcessImages{
+
+			};
+
+			cvex::ShowProcess(ProcessImages, tp, pPara);
+
+			switch (cv::waitKey(1)) {
+
+			case 's':
+				debug_flag = false;
+				break;
+
+			}
+
+		}
+	} while (debug_flag);
+}
+
+void MVTecDataset::runONNX() {
+
+	bool debug_flag = run_ONNX;
+
+	static TParas tp = []() -> TParas {
+
+		return tp;
+	}();
+
+	if (debug_flag) {
+		static bool trackbar_flag = [&]() -> bool {
+
+			CreateWindow(1);
+			Track("show", 1, tp.show, 0, NULL);
+
+			return true;
+		}();
+	}
+
+	do {
+		// ONNX environment
+		Ort::Env env;
+		auto modelPath = L"C:/Users/000501/source/repos/Mahalanobis/model/efficientnet-b4.onnx";    //model location	
+		Ort::RunOptions runOptions;
+		Ort::Session session(env, modelPath, Ort::SessionOptions());
+
+		constexpr int64_t numChannels = 3;
+		constexpr int64_t width = 224;
+		constexpr int64_t height = 224;
+		constexpr int64_t numClasses = 1000;
+		constexpr int64_t numInputElements = numChannels * height * width;
+
+		// define shape
+		const std::array<int64_t, 4> inputShape = { 1, numChannels, height, width };
+		const std::array<int64_t, 2> outputShape = { 1, numClasses };
+
+		// define array
+		std::array<float, numInputElements> input;
+		std::array<float, numClasses> results;
+
+		Ort::AllocatorWithDefaultOptions allocator;
+
+		cout << session.GetInputNameAllocated(0, allocator) << endl;
+		cout << session.GetOutputNameAllocated(0, allocator) << endl;
+
+		auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
+		auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, input.data(), input.size(), inputShape.data(), inputShape.size());
+		auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
+
+		// define names
+		Ort::AllocatorWithDefaultOptions ort_alloc;
+		Ort::AllocatedStringPtr inputName = session.GetInputNameAllocated(0, ort_alloc);
+		Ort::AllocatedStringPtr outputName = session.GetOutputNameAllocated(0, ort_alloc);
+		const std::array<const char*, 1> inputNames = { inputName.get() };
+		const std::array<const char*, 1> outputNames = { outputName.get() };
+
+		inputName.release();
+		outputName.release();
+
+		// run inference
+		try {
+			session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
+			cout << "ONNX running" << endl;
+		}
+		catch (Ort::Exception& e) {
+			std::cout << e.what() << std::endl;
+		}
 
 		if (debug_flag) {
 			vector<pair<Mat, string>> ProcessImages{
@@ -199,7 +346,6 @@ std::vector<vector<std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>>> MVT
 	} while (debug_flag);
 	return dataloader;
 }
-
 
 cv::Mat MVTecDataset::transformX(std::string image) {
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "test.h"
 
+
 // Constructor
 MVTecDataset::MVTecDataset(const std::string& root_path, const std::string& class_name, bool is_train, int resize, int cropsize)
 	: root_path(root_path), class_name(class_name), is_train(is_train), resize(resize), cropsize(cropsize) {
@@ -57,10 +58,6 @@ void MVTecDataset::start() {
 		cout << session.GetInputNameAllocated(0, allocator) << endl;
 		cout << session.GetOutputNameAllocated(0, allocator) << endl;
 		
-		//auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
-		//auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, input.data(), input.size(), inputShape.data(), inputShape.size());
-		//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
-		
 		// define names
 		Ort::AllocatorWithDefaultOptions ort_alloc;
 		Ort::AllocatedStringPtr inputName = session.GetInputNameAllocated(0, ort_alloc);
@@ -70,15 +67,6 @@ void MVTecDataset::start() {
 		
 		inputName.release();
 		outputName.release();
-
-		//// run inference
-		//try {
-		//	session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
-		//	cout << "ONNX running" << endl;
-		//}
-		//catch (Ort::Exception& e) {
-		//	std::cout << e.what() << std::endl;
-		//}
 
 		//Result folder
 		string RT = "C:/Users/000501/source/repos/Mahalanobis";
@@ -127,21 +115,27 @@ void MVTecDataset::start() {
 			cout << class_name << " - Train dataset size - " << train_dataloader.size() << endl;
 			cout << class_name << " - Test dataset size - " << test_dataloader.size() << endl;
 
+			std::vector<std::vector<torch::Tensor>> train_outputs;
+			std::vector<std::vector<torch::Tensor>> test_outputs;
+
 			// Extract train set features
 			std::filesystem::path train_feat_filepath = TempDir;
 			train_feat_filepath /= "train_" + class_name + "_" + "efficientnet-b4.onnx";
 			cout << train_feat_filepath << endl;
 
+			//std::vector<torch::Tensor> train_outputs;
 			if (!std::filesystem::exists(train_feat_filepath))
 			{
 				std::ofstream outputChunkFile(train_feat_filepath, std::ios::binary); // Open the output file once
 				//std::vector<Ort::Value> output_tensors;
-				int m = 0;
+				int m = 1;
 				for (const auto& batch : train_dataloader)
 				{ 
 					std::string progress_bar_text = "| feature extraction | train | " + class_name + " |" + " batch " + std::to_string(m);
 					cout << progress_bar_text << endl;
 					cout << endl;
+
+					std::vector<torch::Tensor> batch_outputs;
 					for (const auto& data : batch)
 					{
 						torch::Tensor x = std::get<0>(data);
@@ -151,34 +145,110 @@ void MVTecDataset::start() {
 						torch::NoGradGuard no_grad;   // Disable Gradient computation
 						auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
 						auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, x.data_ptr<float>(), input.size(), inputShape.data(), inputShape.size());
-						//auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, mask.data_ptr<float>(), input.size(), inputShape.data(), inputShape.size());
-
-						//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, nullptr, results.size(), outputShape.data(), outputShape.size());
-						//auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, y.data_ptr<float>(), results.size(), outputShape.data(), outputShape.size());
 						auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
 
-						//// run inference
-						//try {
-						//	session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
-						//	cout << "ONNX running" << endl;
+						// run inference
+						try {
+							session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
+							cout << "ONNX running" << endl;
+						}
+						catch (Ort::Exception& e) {
+							std::cout << e.what() << std::endl;
+						}
+
+						// sort results
+						std::vector<std::pair<size_t, float>> indexValuePairs;
+						//cout <<"Size of result - " << results.size() << endl;
+						//for (size_t i = 0; i < results.size(); ++i) {
+						//	indexValuePairs.emplace_back(i, results[i]);
+						//	//cout << " value - "<<i<<" - " << results[i]<<endl;
 						//}
-						//catch (Ort::Exception& e) {
-						//	std::cout << e.what() << std::endl;
-						//}
+
+						
+						torch::Tensor feat = torch::from_blob(outputTensor.GetTensorMutableData<float>(), { outputShape[1] });
+						
+						//std::cout << "Feat tensor:- " << feat << endl;
+						batch_outputs.push_back(feat);
+						
+
+
 						// Write the extracted features to the output file
-						outputChunkFile.write(reinterpret_cast<char*>(y.data_ptr<float>()), y.numel() * sizeof(float));
-						//outputChunkFile.write(reinterpret_cast<char*>(outputTensor.data_ptr<float>()), outputTensor.numel() * sizeof(float));
+						//outputChunkFile.write(reinterpret_cast<char*>(results.data()), results.size() * sizeof(float));
 					}
 					m = m + 1;
+					train_outputs.push_back(batch_outputs);
+					
+
 				}
-				outputChunkFile.close();
+
+				for (int i = 0; i < train_outputs.size(); i++)
+				{
+					cout << "working -1" << endl;
+					std::vector<torch::Tensor> train_output = train_outputs[i];
+					cout << "working -2" << endl;
+					//cout << train_output<< endl;
+					torch::Tensor mean = torch::zeros(train_output[0].sizes());
+
+					cout << "working -3" << endl;
+					for (const torch::Tensor& tensor : train_output)
+					{
+						mean += tensor;
+					}
+					mean /= static_cast<float>(train_output.size());
+					int rank = mean.size(0);
+					cout << "Rank - "<<rank << endl;
+					cout << "working -4" << endl;
+					auto mean_data = mean.to(torch::kFloat).data_ptr<float>();
+					cout << "working -5" << endl;
+
+					cout << "working -6" << endl;
+					Eigen::MatrixXf covariance = Eigen::MatrixXf::Zero(1, 1);
+					cout << "working -7" << endl;
+					for (const torch::Tensor& tensor : train_output)
+					{
+						cout << "working -8" << endl;
+						torch::Tensor centered = tensor - mean;
+						auto centered_data = centered.to(torch::kFloat).data_ptr<float>();
+						Eigen::Map<Eigen::MatrixXf> eigen_centered(centered_data, centered.numel(), 1);
+						covariance += eigen_centered.transpose() * eigen_centered;
+						cout << "working -9" << endl;
+					}
+					covariance /= static_cast<float>(train_output.size() - 1);
+					cout << "working -10" << endl;
+					train_outputs[i].clear();
+					train_outputs[i].push_back(torch::from_blob(mean_data, { mean.size(0), 1}));
+					train_outputs[i].push_back(torch::from_blob(covariance.data(), { covariance.rows(), covariance.cols()}));
+					cout << "done" << endl;
+				}
+
+				std::ofstream output_file(train_feat_filepath, std::ios::binary);
+				if (output_file.is_open())
+				{
+					for (const auto& inner_vector : train_outputs)
+					{
+						for (const auto& tensor : inner_vector) 
+						{
+							auto tensor_data = tensor.contiguous().to(torch::kFloat).data_ptr<float>();
+							int64_t data_size = tensor.numel() * sizeof(float);
+							output_file.write(reinterpret_cast<const char*>(&data_size), sizeof(int64_t));
+							output_file.write(reinterpret_cast<const char*>(tensor_data), data_size);
+						}
+					}
+					output_file.close();
+				}
+				else
+				{
+					std::cerr << "Error: Failed to open file for writing" << endl;
+				}
+				
 			}
+			else
+			{
+
+			 
+            }
+			
 		}
-
-		std::vector<std::vector<int>> train_outputs(9);
-		std::vector<std::vector<int>> test_outputs(9);
-
-		
 
 		if (debug_flag) {
 			vector<pair<Mat, string>> ProcessImages{

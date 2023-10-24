@@ -22,8 +22,6 @@ int main() {
     //DatasetInfo dataset = m.loadDatasetFolder();
 	m.start();
 
-
-
 	//Ort::Env env;
 
 	////model location

@@ -158,12 +158,16 @@ void MVTecDataset::start() {
 
 						// sort results
 						std::vector<std::pair<size_t, float>> indexValuePairs;
-						//cout <<"Size of result - " << results.size() << endl;
-						//for (size_t i = 0; i < results.size(); ++i) {
-						//	indexValuePairs.emplace_back(i, results[i]);
-						//	//cout << " value - "<<i<<" - " << results[i]<<endl;
-						//}
 
+						// Check the results size and see the value of each
+						cout <<"Size of result - " << results.size() << endl;
+						for (size_t i = 0; i < results.size(); ++i) {
+							indexValuePairs.emplace_back(i, results[i]);
+							cout << " value - "<<i<<" - " << results[i]<<endl;
+						}
+						
+						int n = results.size();
+						cout << "The size of the result - " << n << endl;
 						
 						torch::Tensor feat = torch::from_blob(outputTensor.GetTensorMutableData<float>(), { outputShape[1] });
 						

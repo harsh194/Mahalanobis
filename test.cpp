@@ -186,56 +186,13 @@ void MVTecDataset::start() {
 				}
 
 				calcMeanCovariance(train_outputs);
-
-				std::ofstream output_file(train_feat_filepath, std::ios::binary);
-				if (output_file.is_open())
-				{
-					for (const auto& inner_vector : train_outputs)
-					{
-						for (const auto& tensor : inner_vector) 
-						{
-							auto tensor_data = tensor.contiguous().to(torch::kFloat).data_ptr<float>();
-							int64_t data_size = tensor.numel() * sizeof(float);
-							output_file.write(reinterpret_cast<const char*>(&data_size), sizeof(int64_t));
-							output_file.write(reinterpret_cast<const char*>(tensor_data), data_size);
-						}
-					}
-					output_file.close();
-				}
-				else
-				{
-					std::cerr << "Error: Failed to open file for writing" << endl;
-				}
+				writeFeatures(train_feat_filepath, train_outputs);    //Writing the features
 				
 			}
 			//Loading the features 
 			else
 			{
-				readFeatures(train_feat_filepath, train_outputs);
-				//cout << "load train set feature distribution from - " << train_feat_filepath << endl;
-
-				//std::ifstream input_file(train_feat_filepath, std::ios::binary);
-				//if (input_file.is_open()) {
-				//	train_outputs.clear(); // Clear the existing data if needed
-
-				//	while (!input_file.eof()) {
-				//		int64_t data_size = 0;
-				//		input_file.read(reinterpret_cast<char*>(&data_size), sizeof(int64_t));
-
-				//		if (data_size <= 0) {
-				//			break;
-				//		}
-
-				//		std::vector<float> tensor_data(data_size / sizeof(float));
-				//		input_file.read(reinterpret_cast<char*>(tensor_data.data()), data_size);
-				//		torch::Tensor tensor = torch::from_blob(tensor_data.data(), { static_cast<long>(tensor_data.size()) }, torch::kFloat);
-				//		train_outputs.push_back(std::vector<torch::Tensor>{tensor});
-				//	}
-				//	input_file.close();
-				//}
-				//else {
-				//	std::cerr << "Error: Failed to open file for reading." << std::endl;
-				//}
+				readFeatures(train_feat_filepath, train_outputs);    //Reading the features
 			}		
 		}
 
@@ -257,6 +214,66 @@ void MVTecDataset::start() {
 		}
 	} while (debug_flag);
 }
+
+void MVTecDataset::writeFeatures(std::filesystem::path train_feat_filepath, std::vector<std::vector<torch::Tensor>> train_outputs) {
+
+	bool debug_flag = write_features;
+
+	static TParas tp = []() -> TParas {
+
+		return tp;
+	}();
+
+	if (debug_flag) {
+		static bool trackbar_flag = [&]() -> bool {
+
+			CreateWindow(1);
+			Track("show", 1, tp.show, 0, NULL);
+
+			return true;
+		}();
+	}
+
+	do {
+		std::ofstream output_file(train_feat_filepath, std::ios::binary);
+		if (output_file.is_open())
+		{
+			for (const auto& inner_vector : train_outputs)
+			{
+				for (const auto& tensor : inner_vector)
+				{
+					auto tensor_data = tensor.contiguous().to(torch::kFloat).data_ptr<float>();
+					int64_t data_size = tensor.numel() * sizeof(float);
+					output_file.write(reinterpret_cast<const char*>(&data_size), sizeof(int64_t));
+					output_file.write(reinterpret_cast<const char*>(tensor_data), data_size);
+				}
+			}
+			output_file.close();
+		}
+		else
+		{
+			std::cerr << "Error: Failed to open file for writing" << endl;
+		}
+
+		if (debug_flag) {
+			vector<pair<Mat, string>> ProcessImages{
+
+			};
+
+			cvex::ShowProcess(ProcessImages, tp, pPara);
+
+			switch (cv::waitKey(1)) {
+
+			case 's':
+				debug_flag = false;
+				break;
+
+			}
+
+		}
+	} while (debug_flag);
+}
+
 
 void MVTecDataset::readFeatures(std::filesystem::path train_feat_filepath, std::vector<std::vector<torch::Tensor>>& train_outputs) {
 

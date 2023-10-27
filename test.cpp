@@ -94,7 +94,6 @@ void MVTecDataset::start() {
 			cout << "Temp Directory already exists" << endl;
 		}
 
-
 		std::vector<float> total_roc_auc;
 		int batch_size = 32;
 
@@ -120,10 +119,10 @@ void MVTecDataset::start() {
 
 			// Extract train set features
 			std::filesystem::path train_feat_filepath = TempDir;
-			train_feat_filepath /= "train_" + class_name + "_" + "efficientnet-b4.onnx";
+			train_feat_filepath /= "train_" + class_name + "_" + "efficientnet-b4.txt";
+			//train_feat_filepath /= "train_" + class_name + "_" + "efficientnet-b4.txt";
 			cout << train_feat_filepath << endl;
 
-			//std::vector<torch::Tensor> train_outputs;
 			if (!std::filesystem::exists(train_feat_filepath))
 			{
 				std::ofstream outputChunkFile(train_feat_filepath, std::ios::binary); // Open the output file once
@@ -160,14 +159,14 @@ void MVTecDataset::start() {
 						std::vector<std::pair<size_t, float>> indexValuePairs;
 
 						// Check the results size and see the value of each
-						cout <<"Size of result - " << results.size() << endl;
+						//cout <<"Size of result - " << results.size() << endl;
 						for (size_t i = 0; i < results.size(); ++i) {
 							indexValuePairs.emplace_back(i, results[i]);
-							cout << " value - "<<i<<" - " << results[i]<<endl;
+							//cout << " value - "<<i<<" - " << results[i]<<endl;
 						}
 						
 						int n = results.size();
-						cout << "The size of the result - " << n << endl;
+						//cout << "The size of the result - git " << n << endl;
 						
 						torch::Tensor feat = torch::from_blob(outputTensor.GetTensorMutableData<float>(), { outputShape[1] });
 						
@@ -185,45 +184,47 @@ void MVTecDataset::start() {
 
 				}
 
-				for (int i = 0; i < train_outputs.size(); i++)
-				{
-					cout << "working -1" << endl;
-					std::vector<torch::Tensor> train_output = train_outputs[i];
-					cout << "working -2" << endl;
-					//cout << train_output<< endl;
-					torch::Tensor mean = torch::zeros(train_output[0].sizes());
+				calcMeanCovariance(train_outputs);
 
-					cout << "working -3" << endl;
-					for (const torch::Tensor& tensor : train_output)
-					{
-						mean += tensor;
-					}
-					mean /= static_cast<float>(train_output.size());
-					int rank = mean.size(0);
-					cout << "Rank - "<<rank << endl;
-					cout << "working -4" << endl;
-					auto mean_data = mean.to(torch::kFloat).data_ptr<float>();
-					cout << "working -5" << endl;
+				//for (int i = 0; i < train_outputs.size(); i++)
+				//{
+				//	cout << "working -1" << endl;
+				//	std::vector<torch::Tensor> train_output = train_outputs[i];
+				//	cout << "working -2" << endl;
+				//	//cout << train_output<< endl;
+				//	torch::Tensor mean = torch::zeros(train_output[0].sizes());
 
-					cout << "working -6" << endl;
-					Eigen::MatrixXf covariance = Eigen::MatrixXf::Zero(1, 1);
-					cout << "working -7" << endl;
-					for (const torch::Tensor& tensor : train_output)
-					{
-						cout << "working -8" << endl;
-						torch::Tensor centered = tensor - mean;
-						auto centered_data = centered.to(torch::kFloat).data_ptr<float>();
-						Eigen::Map<Eigen::MatrixXf> eigen_centered(centered_data, centered.numel(), 1);
-						covariance += eigen_centered.transpose() * eigen_centered;
-						cout << "working -9" << endl;
-					}
-					covariance /= static_cast<float>(train_output.size() - 1);
-					cout << "working -10" << endl;
-					train_outputs[i].clear();
-					train_outputs[i].push_back(torch::from_blob(mean_data, { mean.size(0), 1}));
-					train_outputs[i].push_back(torch::from_blob(covariance.data(), { covariance.rows(), covariance.cols()}));
-					cout << "done" << endl;
-				}
+				//	cout << "working -3" << endl;
+				//	for (const torch::Tensor& tensor : train_output)
+				//	{
+				//		mean += tensor;
+				//	}
+				//	mean /= static_cast<float>(train_output.size());
+				//	int rank = mean.size(0);
+				//	cout << "Rank - "<<rank << endl;
+				//	cout << "working -4" << endl;
+				//	auto mean_data = mean.to(torch::kFloat).data_ptr<float>();
+				//	cout << "working -5" << endl;
+
+				//	cout << "working -6" << endl;
+				//	Eigen::MatrixXf covariance = Eigen::MatrixXf::Zero(1, 1);
+				//	cout << "working -7" << endl;
+				//	for (const torch::Tensor& tensor : train_output)
+				//	{
+				//		cout << "working -8" << endl;
+				//		torch::Tensor centered = tensor - mean;
+				//		auto centered_data = centered.to(torch::kFloat).data_ptr<float>();
+				//		Eigen::Map<Eigen::MatrixXf> eigen_centered(centered_data, centered.numel(), 1);
+				//		covariance += eigen_centered.transpose() * eigen_centered;
+				//		cout << "working -9" << endl;
+				//	}
+				//	covariance /= static_cast<float>(train_output.size() - 1);
+				//	cout << "working -10" << endl;
+				//	train_outputs[i].clear();
+				//	train_outputs[i].push_back(torch::from_blob(mean_data, { mean.size(0), 1}));
+				//	train_outputs[i].push_back(torch::from_blob(covariance.data(), { covariance.rows(), covariance.cols()}));
+				//	cout << "done" << endl;
+				//}
 
 				std::ofstream output_file(train_feat_filepath, std::ios::binary);
 				if (output_file.is_open())
@@ -248,9 +249,12 @@ void MVTecDataset::start() {
 			}
 			else
 			{
+			cout << "load train set feature distribution from - " << train_feat_filepath << endl;
 
 			 
             }
+
+
 			
 		}
 
@@ -272,6 +276,86 @@ void MVTecDataset::start() {
 		}
 	} while (debug_flag);
 }
+
+void MVTecDataset::calcMeanCovariance(std::vector<std::vector<torch::Tensor>>& train_outputs) {
+
+	bool debug_flag = calc_mean_covariance;
+
+	static TParas tp = []() -> TParas {
+
+		return tp;
+	}();
+
+	if (debug_flag) {
+		static bool trackbar_flag = [&]() -> bool {
+
+			CreateWindow(1);
+			Track("show", 1, tp.show, 0, NULL);
+
+			return true;
+		}();
+	}
+
+	do {
+		for (int i = 0; i < train_outputs.size(); i++)
+		{
+			cout << "working -1" << endl;
+			std::vector<torch::Tensor> train_output = train_outputs[i];
+			cout << "working -2" << endl;
+			//cout << train_output<< endl;
+			torch::Tensor mean = torch::zeros(train_output[0].sizes());
+
+			cout << "working -3" << endl;
+			for (const torch::Tensor& tensor : train_output)
+			{
+				mean += tensor;
+			}
+			mean /= static_cast<float>(train_output.size());
+			int rank = mean.size(0);
+			cout << "Rank - " << rank << endl;
+			cout << "working -4" << endl;
+			auto mean_data = mean.to(torch::kFloat).data_ptr<float>();
+			cout << "working -5" << endl;
+
+			cout << "working -6" << endl;
+			Eigen::MatrixXf covariance = Eigen::MatrixXf::Zero(1, 1);
+			cout << "working -7" << endl;
+			for (const torch::Tensor& tensor : train_output)
+			{
+				cout << "working -8" << endl;
+				torch::Tensor centered = tensor - mean;
+				auto centered_data = centered.to(torch::kFloat).data_ptr<float>();
+				Eigen::Map<Eigen::MatrixXf> eigen_centered(centered_data, centered.numel(), 1);
+				covariance += eigen_centered.transpose() * eigen_centered;
+				cout << "working -9" << endl;
+			}
+			covariance /= static_cast<float>(train_output.size() - 1);
+			cout << "working -10" << endl;
+			train_outputs[i].clear();
+			train_outputs[i].push_back(torch::from_blob(mean_data, { mean.size(0), 1 }));
+			train_outputs[i].push_back(torch::from_blob(covariance.data(), { covariance.rows(), covariance.cols() }));
+			cout << "done" << endl;
+		}
+
+
+		if (debug_flag) {
+			vector<pair<Mat, string>> ProcessImages{
+
+			};
+
+			cvex::ShowProcess(ProcessImages, tp, pPara);
+
+			switch (cv::waitKey(1)) {
+
+			case 's':
+				debug_flag = false;
+				break;
+
+			}
+		}
+	} while (debug_flag);
+}
+
 
 void MVTecDataset::runONNX() {
 

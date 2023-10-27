@@ -1,6 +1,8 @@
 #pragma once
 #include "test.h"
 
+using namespace std;
+using namespace cv;
 
 // Constructor
 MVTecDataset::MVTecDataset(const std::string& root_path, const std::string& class_name, bool is_train, int resize, int cropsize)
@@ -194,6 +196,90 @@ void MVTecDataset::start() {
 			{
 				readFeatures(train_feat_filepath, train_outputs);    //Reading the features
 			}		
+
+			// Extracting the features for test data
+			int n = 1;
+			std::vector<vector<float>> gt_list;
+			for (const auto& batch : test_dataloader)
+			{
+				for (auto& data : batch)
+				{
+					torch::Tensor y = std::get<1>(data);
+				}
+			}
+
+			for (const auto& batch : test_dataloader)
+			{
+				std::string progress_bar_text = "| feature extraction | test | " + class_name + " |" + " batch " + std::to_string(n);
+				cout << progress_bar_text << endl;
+				cout << endl;
+
+				std::vector<torch::Tensor> batch_outputs;
+				vector<float> gt;
+				for (const auto& data : batch)
+				{
+					torch::Tensor x = std::get<0>(data);
+					torch::Tensor y = std::get<1>(data);
+					torch::Tensor mask = std::get<2>(data);
+
+					std::vector<float> y_vector(y.data_ptr<float>(), y.data_ptr<float>() + y.numel());
+					gt.insert(gt.end(), y_vector.begin(), y_vector.end());
+
+					torch::NoGradGuard no_grad;   // Disable Gradient computation
+					auto memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU); //memory allocation
+					auto inputTensor = Ort::Value::CreateTensor<float>(memoryInfo, x.data_ptr<float>(), input.size(), inputShape.data(), inputShape.size());
+					auto outputTensor = Ort::Value::CreateTensor<float>(memoryInfo, results.data(), results.size(), outputShape.data(), outputShape.size());
+
+					// run inference
+					try {
+						session.Run(runOptions, inputNames.data(), &inputTensor, 1, outputNames.data(), &outputTensor, 1);
+						cout << "ONNX running" << endl;
+					}
+					catch (Ort::Exception& e) {
+						std::cout << e.what() << std::endl;
+					}
+
+					torch::Tensor feat = torch::from_blob(outputTensor.GetTensorMutableData<float>(), { outputShape[1] });
+					batch_outputs.push_back(feat);
+				}
+				gt_list.push_back(gt);
+				n = n + 1;
+				test_outputs.push_back(batch_outputs);
+			}
+
+			for (int i = 0; i < test_outputs.size(); i++)
+			{
+				std::vector<torch::Tensor> test_output = test_outputs[i];
+				//std::vector<torch::kFloat> test_data;
+				for (const torch::Tensor& tensor : test_output)
+				{
+					auto data = tensor.to(torch::kFloat).data_ptr<float>();
+					//test_data.push_back(data);
+				}
+				test_outputs[i].clear();
+			}
+
+			// Mahalanobis distance
+			vector<vector<float>> dist_list;
+
+			for (int k = 0; k < test_outputs.size(); k++)
+			{
+				Eigen::VectorXf mean = Eigen::VectorXf::Map(train_outputs[k][0].data_ptr<float>(), train_outputs[k][0].numel());
+				torch::Tensor cov_tensor = train_outputs[k][1];
+
+				Eigen::MatrixXf cov_inv = Eigen::Map<Eigen::MatrixXf>(cov_tensor.data_ptr<float>(), cov_tensor.size(0), cov_tensor.size(1)).inverse();
+
+				std::vector<float> dist;
+				for (const torch::Tensor& sample : test_outputs[k]) {
+					Eigen::VectorXf sample_vector = Eigen::VectorXf::Map(sample.data_ptr<float>(), sample.numel());
+					Eigen::VectorXf diff = sample_vector - mean;
+					float mahalanobis_distance = diff.transpose() * cov_inv * diff;
+					cout << mahalanobis_distance << endl;
+					dist.push_back(mahalanobis_distance);
+				}
+				cout << "-----------------------------" << endl;
+				dist_list.push_back(dist);
+			}
 		}
 
 		if (debug_flag) {
@@ -364,6 +450,7 @@ void MVTecDataset::calcMeanCovariance(std::vector<std::vector<torch::Tensor>>& t
 		{
 			std::vector<torch::Tensor> train_output = train_outputs[i];
 			torch::Tensor mean = torch::zeros(train_output[0].sizes());
+			cout << i << " - " << train_output[0].sizes() << endl;
 
 			for (const torch::Tensor& tensor : train_output)
 			{
@@ -374,6 +461,7 @@ void MVTecDataset::calcMeanCovariance(std::vector<std::vector<torch::Tensor>>& t
 			auto mean_data = mean.to(torch::kFloat).data_ptr<float>();
 
 			Eigen::MatrixXf covariance = Eigen::MatrixXf::Zero(1, 1);
+
 			for (const torch::Tensor& tensor : train_output)
 			{
 				torch::Tensor centered = tensor - mean;

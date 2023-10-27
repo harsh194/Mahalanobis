@@ -21,6 +21,7 @@ public:
     std::vector<vector<std::tuple<torch::Tensor, torch::Tensor, torch::Tensor>>> createBatch(DatasetInfo dataset);
     void runONNX();
     void calcMeanCovariance(std::vector<std::vector<torch::Tensor>>& train_outputs);
+    void readFeatures(std::filesystem::path train_feat_filepath, std::vector<std::vector<torch::Tensor>>& train_outputs);
 
 protected:
     bool start_operation = 0;
@@ -32,6 +33,7 @@ protected:
     bool create_batch = 0;
     bool run_ONNX = 0;
     bool calc_mean_covariance = 0;
+    bool read_features = 0;
 
 private:
     std::string root_path;

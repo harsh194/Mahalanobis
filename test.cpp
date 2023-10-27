@@ -247,39 +247,124 @@ void MVTecDataset::start() {
 				test_outputs.push_back(batch_outputs);
 			}
 
+			std::vector<std::vector<torch::Tensor>> new_test_outputs;
+
 			for (int i = 0; i < test_outputs.size(); i++)
 			{
 				std::vector<torch::Tensor> test_output = test_outputs[i];
-				//std::vector<torch::kFloat> test_data;
+				std::vector<torch::Tensor> test_data;
 				for (const torch::Tensor& tensor : test_output)
 				{
-					auto data = tensor.to(torch::kFloat).data_ptr<float>();
-					//test_data.push_back(data);
+					torch::Tensor data = tensor.squeeze();
+					data = data.to(torch::kCPU);
+					data = data.detach();
+
+					auto mean_data = data.to(torch::kFloat).data_ptr<float>();
+					torch::Tensor new_out = torch::from_blob(mean_data, {data.size(0),1});
+					test_data.push_back(new_out);
 				}
-				test_outputs[i].clear();
+				new_test_outputs.push_back(test_data);
 			}
+			test_outputs = new_test_outputs;
 
 			// Mahalanobis distance
 			vector<vector<float>> dist_list;
 
 			for (int k = 0; k < test_outputs.size(); k++)
 			{
+				cout << " working -1 " << endl;
 				Eigen::VectorXf mean = Eigen::VectorXf::Map(train_outputs[k][0].data_ptr<float>(), train_outputs[k][0].numel());
-				torch::Tensor cov_tensor = train_outputs[k][1];
-
-				Eigen::MatrixXf cov_inv = Eigen::Map<Eigen::MatrixXf>(cov_tensor.data_ptr<float>(), cov_tensor.size(0), cov_tensor.size(1)).inverse();
+				cout << " working -2 " << endl;
+				torch::Tensor cov_tensor = train_outputs[k][1].to(torch::kFloat);
+				cout << " working -3 " << endl;
+				Eigen::MatrixXf cov_inv = Eigen::Map<Eigen::MatrixXf>(cov_tensor.data_ptr<float>(), cov_tensor.size(0), cov_tensor.size(1));
+				cout << " working -4 " << endl;
+				cov_inv = cov_inv.inverse();
+				cout << " working -5 " << endl;
 
 				std::vector<float> dist;
 				for (const torch::Tensor& sample : test_outputs[k]) {
 					Eigen::VectorXf sample_vector = Eigen::VectorXf::Map(sample.data_ptr<float>(), sample.numel());
+					cout << " working -6 " << endl;
 					Eigen::VectorXf diff = sample_vector - mean;
+					cout << " working -7 " << endl;
 					float mahalanobis_distance = diff.transpose() * cov_inv * diff;
+					cout << " working -8 " << endl;
 					cout << mahalanobis_distance << endl;
 					dist.push_back(mahalanobis_distance);
 				}
 				cout << "-----------------------------" << endl;
 				dist_list.push_back(dist);
 			}
+
+			// Anamoly score
+			vector<float> scores;
+			for (auto dist : dist_list)
+			{
+				float score = 0;
+				for (int i = 0; i < dist.size(); i++)
+				{
+					score += dist[i];
+				}
+				scores.push_back(score);
+			}
+
+			//// Calculate image-level ROC AUC score
+			//std::vector<float> fpr;
+			//std::vector<float> tpr;
+
+			//// Sort the scores and corresponding labels by scores
+			//std::vector<std::pair<float, float>> score_label_pairs;
+
+			//for (size_t i = 0; i < scores.size(); ++i) {
+			//	float score = scores[i];
+			//	float label = gt_list[i];
+			//	
+			//}
+
+			//std::sort(score_label_pairs.begin(), score_label_pairs.end(), std::greater<std::pair<float, float>>());
+
+			//float threshold = score_label_pairs[0].first + 1.0; // Initialize threshold
+			//size_t tp = 0;
+			//size_t tn = 0;
+			//size_t fp = 0;
+			//size_t fn = 0;
+
+			//for (const auto& pair : score_label_pairs) {
+			//	if (pair.second > 0) {
+			//		fn++;
+			//	}
+			//	else {
+			//		tn++;
+			//	}
+
+			//	// Calculate TPR and FPR
+			//	tpr.push_back(static_cast<float>(tp) / (tp + fn));
+			//	fpr.push_back(static_cast<float>(fp) / (tn + fp));
+
+			//	if (pair.first < threshold) {
+			//		threshold = pair.first;
+			//	}
+
+			//	if (pair.second > 0) {
+			//		tp++;
+			//	}
+			//	else {
+			//		fp++;
+			//	}
+			//}
+
+			//// Calculate ROC AUC
+			//float roc_auc = 0.0;
+			//for (size_t i = 1; i < fpr.size(); ++i) {
+			//	roc_auc += 0.5 * (fpr[i] - fpr[i - 1]) * (tpr[i] + tpr[i - 1]);
+			//}
+
+			//// Print ROC AUC score
+			//std::cout << class_name << " ROCAUC: " << roc_auc << std::endl;
+
+			//// Store ROC AUC score
+			//total_roc_auc.push_back(roc_auc);
 		}
 
 		if (debug_flag) {
